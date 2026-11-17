@@ -2,7 +2,7 @@
 // The meshes, painting and per-object settings are copied untouched; only the project config is
 // rebuilt from the target printer's OrcaSlicer presets plus the settings the author changed.
 
-import { readZip, readText, forEachTagChunk, makeEntry, transformEntry, writeZip } from "./zip.js?version=1.0.0";
+import { readZip, readText, forEachTagChunk, makeEntry, transformEntry, writeZip } from "./zip.js?version=1.0.1";
 
 const CONFIG = "Metadata/project_settings.config";
 const MODEL = "3D/3dmodel.model";
@@ -296,39 +296,137 @@ function withoutMeta(config) {
   return out;
 }
 
-function machineLimits(machine) {
+// Limits on accelerations, jerk and speeds kept from the original.
+const LIMIT_ACCEL = [
+  "default_acceleration", "outer_wall_acceleration", "inner_wall_acceleration", "initial_layer_acceleration",
+  "top_surface_acceleration", "travel_acceleration", "bridge_acceleration", "sparse_infill_acceleration",
+  "internal_solid_infill_acceleration",
+];
+// A percent acceleration is relative to this key; the others in percent are not limited.
+const ACCEL_PERCENT_OF = {
+  bridge_acceleration: "outer_wall_acceleration",
+  sparse_infill_acceleration: "default_acceleration",
+  internal_solid_infill_acceleration: "default_acceleration",
+};
+const LIMIT_JERK = ["default_jerk", "outer_wall_jerk", "inner_wall_jerk", "infill_jerk", "top_surface_jerk", "initial_layer_jerk", "travel_jerk"];
+// Speed -> line width used for the filament's volumetric flow limit (null: machine speed only).
+const LIMIT_SPEED = {
+  outer_wall_speed: "outer_wall_line_width",
+  inner_wall_speed: "inner_wall_line_width",
+  sparse_infill_speed: "sparse_infill_line_width",
+  internal_solid_infill_speed: "internal_solid_infill_line_width",
+  top_surface_speed: "top_surface_line_width",
+  gap_infill_speed: "line_width",
+  support_speed: "support_line_width",
+  support_interface_speed: "support_line_width",
+  initial_layer_speed: "initial_layer_line_width",
+  initial_layer_infill_speed: "initial_layer_line_width",
+  bridge_speed: null,
+  ironing_speed: null,
+  travel_speed: null,
+  overhang_1_4_speed: null,
+  overhang_2_4_speed: null,
+  overhang_3_4_speed: null,
+  overhang_4_4_speed: null,
+  overhang_totally_speed: null,
+};
+// Firmwares with a separate travel acceleration limit (M204 T).
+const TRAVEL_ACCEL_FLAVORS = ["repetier", "marlin2", "reprapfirmware"];
+
+// ctx: { machine, value(key) -> the value written to the file by default }
+function machineLimits(ctx) {
+  const { machine, value } = ctx;
   const limit = (key) => {
     const n = toNumber(first(machine[key]));
     return n && n > 0 ? n : null;
   };
-  const accel = limit("machine_max_acceleration_extruding");
-  const speeds = [limit("machine_max_speed_x"), limit("machine_max_speed_y")].filter(Boolean);
-  const jerks = [limit("machine_max_jerk_x"), limit("machine_max_jerk_y")].filter(Boolean);
+  const accel = (toNumber(first(value("default_acceleration"))) || 0) > 0 ? limit("machine_max_acceleration_extruding") : null;
+  const travelAccel = TRAVEL_ACCEL_FLAVORS.includes(String(first(machine.gcode_flavor) || "")) ? limit("machine_max_acceleration_travel") : accel;
+  const jerkX = limit("machine_max_jerk_x");
+  const jerkY = limit("machine_max_jerk_y");
+  const jerkOn = (toNumber(first(value("default_jerk"))) || 0) > 0;
+  const speedX = limit("machine_max_speed_x");
+  const speedY = limit("machine_max_speed_y");
+  const flows = [].concat(value("filament_max_volumetric_speed") ?? []).map(toNumber).filter((n) => n > 0);
   return {
     accel,
-    travelAccel: limit("machine_max_acceleration_travel") || accel,
-    speed: speeds.length ? Math.min(...speeds) : null,
-    jerk: jerks.length ? Math.min(...jerks) : null,
+    travelAccel: accel ? travelAccel : null,
+    jerk: jerkOn && jerkX && jerkY ? Math.min(jerkX, jerkY) : null,
+    speed: speedX && speedY ? Math.min(speedX, speedY) : speedX || speedY || Infinity,
+    flow: flows.length ? Math.min(...flows) : null,
+    nozzle: toNumber(first(machine.nozzle_diameter)) || 0.4,
   };
 }
 
-// Caps an author value at the target machine's limits; returns [value, capped].
-function capToMachine(key, value, limits) {
-  let max = null;
-  if (key.endsWith("_acceleration")) max = key === "travel_acceleration" ? limits.travelAccel : limits.accel;
-  else if (key.endsWith("_jerk")) max = limits.jerk;
-  else if (key.endsWith("_speed") && !key.endsWith("_z") && !key.includes("fan")) max = limits.speed;
-  if (!max) return [value, false];
-  let capped = false;
-  const cap = (v) => {
-    if (isPercent(v)) return v;
-    const n = toNumber(v);
-    if (n == null || n <= max) return v;
-    capped = true;
-    return String(max);
-  };
-  const result = Array.isArray(value) ? value.map(cap) : cap(value);
-  return [result, capped];
+// Caps an original value at the target machine's limits; returns [value, reason] with reason
+// "machine", "flow" or "".
+function capToMachine(key, value, target, limits, ctx) {
+  let reason = "";
+  const each = (fn) => (Array.isArray(value) ? value.map((v, i) => fn(v, i)) : fn(value, 0));
+  const at = (v, i) => toNumber(Array.isArray(v) ? v[Math.min(i, v.length - 1)] : v);
+
+  if (LIMIT_ACCEL.includes(key)) {
+    const max = key === "travel_acceleration" ? limits.travelAccel : limits.accel;
+    if (!max) return [value, ""];
+    const result = each((v, i) => {
+      const n = toNumber(v);
+      if (n == null) return v;
+      if (isPercent(v)) {
+        const base = ACCEL_PERCENT_OF[key] && at(ctx.value(ACCEL_PERCENT_OF[key]), i);
+        if (!base || base <= 0 || (base * n) / 100 <= max) return v;
+        reason = "machine";
+        return `${Math.floor((max / base) * 100)}%`;
+      }
+      if (n <= max) return v;
+      reason = "machine";
+      return String(Math.floor(max));
+    });
+    return [result, reason];
+  }
+
+  if (LIMIT_JERK.includes(key)) {
+    if (!limits.jerk) return [value, ""];
+    const result = each((v) => {
+      const n = toNumber(v);
+      if (n == null || isPercent(v) || n <= limits.jerk) return v;
+      reason = "machine";
+      return String(+limits.jerk.toFixed(3));
+    });
+    return [result, reason];
+  }
+
+  if (key in LIMIT_SPEED) {
+    let max = limits.speed;
+    let flowMax = Infinity;
+    const widthKey = LIMIT_SPEED[key];
+    const layer = toNumber(first(ctx.value(key.startsWith("initial_layer") ? "initial_layer_print_height" : "layer_height")))
+      || toNumber(first(ctx.value("layer_height")));
+    if (widthKey && limits.flow && layer > 0) {
+      const width = (k) => {
+        const raw = first(ctx.value(k));
+        const n = toNumber(raw);
+        if (!n || n <= 0) return null;
+        return isPercent(raw) ? (limits.nozzle * n) / 100 : n;
+      };
+      // Rounded so that floating point (21 / 0.084 = 249.99...) does not flag the exact limit.
+      flowMax = +(limits.flow / (layer * (width(widthKey) || width("line_width") || limits.nozzle * 1.125))).toFixed(6);
+      max = Math.min(max, flowMax);
+    }
+    if (!isFinite(max)) return [value, ""];
+    const result = each((v, i) => {
+      const n = toNumber(v);
+      if (n == null || isPercent(v)) return v;
+      // Never below the target profile's own value.
+      const own = at(target, i);
+      if (own != null && n <= own) return v;
+      const cap = Math.max(max, own ?? 0);
+      if (n <= cap) return v;
+      reason = reason || (flowMax <= limits.speed ? "flow" : "machine");
+      return String(Math.floor(cap));
+    });
+    return [result, reason];
+  }
+  return [value, ""];
 }
 
 // Keys that identify the preset or its variant layout rather than how it prints.
@@ -371,15 +469,23 @@ function incompatibility(key, original, known, layers) {
 
 // Lists every print setting in which the original differs from the target process. Settings the
 // target process does not define are listed only when the author changed them. The original value
-// is suggested unless it does not suit the target printer (incompatible).
+// is suggested for the author's own changes and the layer heights, which belong to the model; the
+// rest is the source printer's tuning, so the target's value is suggested. An incompatible original
+// is never suggested.
 export function describeDifferences(project, target, keys) {
   const printKeys = new Set(keys.print);
   const projectKeys = new Set(keys.project);
   const process = targetProcess(target, keys);
   const machine = target.machine.config;
-  const limits = machineLimits(machine);
   const layers = { min: toNumber(first(machine.min_layer_height)), max: toNumber(first(machine.max_layer_height)) };
   const author = new Set(project.authorChanges.print);
+  // What the file gets by default: the original for the author's changes, the layer heights and the
+  // filaments; the target process for the rest.
+  const ctx = {
+    machine,
+    value: (key) => (author.has(key) || LAYER_KEYS.includes(key) || !(key in process) ? project.config[key] : process[key]),
+  };
+  const limits = machineLimits(ctx);
   const rows = [];
   for (const key of new Set([...keys.print, ...author])) {
     if (NOT_COMPARED.has(key) || TARGET_ONLY.has(key) || projectKeys.has(key) || !(key in project.config)) continue;
@@ -389,8 +495,9 @@ export function describeDifferences(project, target, keys) {
     const original = coerce(source, targetValue);
     if (targetValue !== undefined && sameValue(original, targetValue)) continue;
     const known = printKeys.has(key);
-    const [value, capped] = capToMachine(key, original, limits);
-    const incompatible = capped ? "limit" : incompatibility(key, original, known, layers);
+    const [value, limited] = capToMachine(key, original, targetValue, limits, ctx);
+    const capped = !!limited;
+    const incompatible = limited ? `limit-${limited}` : incompatibility(key, original, known, layers);
     rows.push({
       key,
       known,
@@ -401,10 +508,10 @@ export function describeDifferences(project, target, keys) {
       capped,
       incompatible,
       layers,
-      keep: !incompatible,
+      keep: !incompatible && (author.has(key) || LAYER_KEYS.includes(key)),
     });
   }
-  return rows.sort((a, b) => Number(!!b.incompatible) - Number(!!a.incompatible) || Number(b.author) - Number(a.author) || a.key.localeCompare(b.key));
+  return rows.sort((a, b) => Number(!!b.incompatible) - Number(!!a.incompatible) || Number(b.keep) - Number(a.keep) || a.key.localeCompare(b.key));
 }
 
 function buildConfig(project, target, plan, keys) {
@@ -559,7 +666,8 @@ export function planConversion(project, target, options, keys) {
   const slots = merge ? [project.usedFilaments[0] || 1] : project.filaments.map((f) => f.index);
   const sourceBed = project.source.bed;
   const targetBed = bedRect(target.machine.config.printable_area);
-  const carried = describeDifferences(project, target, keys).filter((row) => options.carry.has(row.key));
+  // An incompatible original is never written, whatever was chosen.
+  const carried = describeDifferences(project, target, keys).filter((row) => !row.incompatible && options.carry.has(row.key));
   return {
     merge,
     slots,

@@ -1,4 +1,4 @@
-import { readBytes } from "./zip.js?version=1.0.0";
+import { readBytes } from "./zip.js?version=1.0.1";
 import {
   readProject,
   chooseProcess,
@@ -6,9 +6,9 @@ import {
   checkFit,
   planConversion,
   convertProject,
-} from "./converter.js?version=1.0.0";
+} from "./converter.js?version=1.0.1";
 
-const APP_VERSION = "1.0.0";
+const APP_VERSION = "1.0.1";
 const MAX_LISTED = 80;
 
 const $ = (id) => document.getElementById(id);
@@ -56,7 +56,6 @@ const swatch = (colour) => `<span class="swatch" style="background:${escapeHtml(
 
 async function openFile(file) {
   showError("");
-  $("result").hidden = true;
   setStatus("Lendo o arquivo…");
   try {
     const project = await readProject(await file.arrayBuffer(), setStatus);
@@ -115,63 +114,6 @@ async function renderSource() {
   }
   $("plates").innerHTML = cards.join("");
   $("sourceInfo").hidden = false;
-}
-
-// ---------- settings summary ----------
-
-const SUMMARY_GROUPS = [
-  ["Qualidade", [
-    ["layer_height", "Altura da camada"],
-    ["initial_layer_print_height", "Altura da primeira camada"],
-    ["seam_position", "Posição da costura"],
-  ]],
-  ["Resistência", [
-    ["wall_loops", "Voltas da parede"],
-    ["top_shell_layers", "Camadas sólidas no topo"],
-    ["bottom_shell_layers", "Camadas sólidas na base"],
-    ["sparse_infill_density", "Densidade do preenchimento"],
-    ["sparse_infill_pattern", "Padrão do preenchimento"],
-  ]],
-  ["Suporte e adesão", [
-    ["enable_support", "Suporte"],
-    ["support_type", "Tipo de suporte"],
-    ["brim_type", "Borda (brim)"],
-    ["brim_width", "Largura da borda"],
-    ["enable_prime_tower", "Torre de purga"],
-  ]],
-  ["Velocidade (mm/s)", [
-    ["outer_wall_speed", "Parede externa"],
-    ["inner_wall_speed", "Parede interna"],
-    ["sparse_infill_speed", "Preenchimento"],
-    ["travel_speed", "Deslocamento"],
-  ]],
-];
-const BOOLEAN_KEYS = new Set(["enable_support", "enable_prime_tower"]);
-
-function summaryValue(config, key) {
-  if (config[key] === undefined) return "-";
-  const values = [...new Set([].concat(config[key]))];
-  if (BOOLEAN_KEYS.has(key)) return values.map((v) => (v === "1" || v === "true" ? "Sim" : "Não")).join(" / ");
-  return values.join(" / ") || "-";
-}
-
-// columns: [{ title, config }]; the first column is the original.
-function summaryTable(columns) {
-  const authorKeys = new Set(state.project.authorChanges.print);
-  const compare = columns.length > 1;
-  const head = `<div class="summary-row summary-head"><span>Configuração</span>${columns.map((c) => `<span>${escapeHtml(c.title)}</span>`).join("")}</div>`;
-  const groups = SUMMARY_GROUPS.map(([title, rows]) => {
-    const lines = rows.map(([key, label]) => {
-      const values = columns.map((c) => summaryValue(c.config, key));
-      const author = authorKeys.has(key);
-      const differs = compare && values[1] !== values[0];
-      const tag = author ? '<em class="tag">ajuste do autor</em>' : "";
-      const status = compare ? (differs ? (author ? " author-diff" : " diff") : " same") : "";
-      return `<div class="summary-row${status}"><span>${escapeHtml(label)}${tag}</span>${values.map((v) => `<span>${escapeHtml(v)}</span>`).join("")}</div>`;
-    }).join("");
-    return `<div class="summary-group"><strong>${escapeHtml(title)}</strong>${lines}</div>`;
-  }).join("");
-  return `<div class="summary-grid cols-${columns.length}">${head}${groups}</div>`;
 }
 
 // ---------- step 2: target printer ----------
@@ -288,7 +230,8 @@ function renderDifferences() {
     $("authorChanges").innerHTML = head + state.rows.map((row) => {
       const label = settingLabel(row.key);
       const problem = {
-        limit: `Acima do máximo da impressora: se mantiver o original, vai ${formatValue(row.value)}`,
+        "limit-machine": `Acima do máximo da impressora (${formatValue(row.value)})`,
+        "limit-flow": `Acima do fluxo máximo do filamento nesta altura de camada (${formatValue(row.value)})`,
         layer: `Fora do limite do bico (${row.layers.min} a ${row.layers.max} mm)`,
         unknown: "Não existe no OrcaSlicer, que ignora esta chave",
       }[row.incompatible] || "";
@@ -299,7 +242,7 @@ function renderDifferences() {
       const targetText = row.target === undefined ? "padrão do OrcaSlicer" : shortValue(row.target);
       return `<div class="diff-row${row.incompatible ? " incompatible" : ""}">
         <span class="change-name"><strong>${escapeHtml(label)}</strong><code>${escapeHtml(row.key)}</code>${note ? `<small>${escapeHtml(note)}</small>` : ""}${problem ? `<em class="diff-problem">${escapeHtml(problem)}</em>` : ""}</span>
-        <label class="diff-option"><input type="radio" name="${escapeHtml(name)}" data-key="${escapeHtml(row.key)}" value="original" ${keep ? "checked" : ""} /><span><small>Original</small><b title="${escapeHtml(formatValue(original))}">${escapeHtml(shortValue(original))}</b></span></label>
+        <label class="diff-option"><input type="radio" name="${escapeHtml(name)}" data-key="${escapeHtml(row.key)}" value="original" ${keep ? "checked" : ""}${row.incompatible ? " disabled" : ""} /><span><small>Original</small><b title="${escapeHtml(formatValue(original))}">${escapeHtml(shortValue(original))}</b></span></label>
         <label class="diff-option"><input type="radio" name="${escapeHtml(name)}" data-key="${escapeHtml(row.key)}" value="target" ${keep ? "" : "checked"} /><span><small>Seu perfil</small><b title="${escapeHtml(formatValue(row.target))}">${escapeHtml(targetText)}</b></span></label>
       </div>`;
     }).join("");
@@ -357,7 +300,7 @@ async function convert() {
   try {
     const target = { printer: state.printer, machine: state.machine, process: state.process };
     const plan = planConversion(state.project, target, { carry: state.carry, merge: mergeColours() }, state.keys);
-    const { blob, config } = await convertProject(state.project, target, plan, state.keys, (message) => {
+    const { blob } = await convertProject(state.project, target, plan, state.keys, (message) => {
       button.textContent = message;
     });
     const base = state.file.name.replace(/\.3mf$/i, "");
@@ -370,20 +313,6 @@ async function convert() {
     link.click();
     link.remove();
     window.setTimeout(() => URL.revokeObjectURL(url), 60000);
-
-    $("resultText").textContent = fileName;
-    $("resultList").innerHTML = [
-      `Impressora: <strong>${escapeHtml(config.printer_settings_id)}</strong>`,
-      `Processo: <strong>${escapeHtml(config.print_settings_id)}</strong>`,
-      `Filamentos (iguais ao original): ${config.filament_settings_id.map((name, i) => `${swatch(config.filament_colour[i])}${escapeHtml(name)}`).join(", ")}`,
-      `Valores mantidos do original: ${plan.carried.length ? plan.carried.map((r) => escapeHtml(settingLabel(r.key))).join(", ") : "nenhum"}`,
-    ].map((item) => `<li>${item}</li>`).join("");
-    $("compareSummary").innerHTML = summaryTable([
-      { title: "Original", config: state.project.config },
-      { title: "Convertido", config },
-    ]);
-    $("result").hidden = false;
-    $("result").scrollIntoView({ behavior: "smooth", block: "start" });
   } catch (error) {
     console.error(error);
     showError(`Falha na conversão: ${error.message || error}`);

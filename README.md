@@ -10,11 +10,24 @@ Conversor de projetos 3MF do Bambu Studio (MakerWorld) para outras impressoras. 
   (máquina + processo).
 - Compara com o processo da impressora escolhida de mesma qualidade (ex.: `0.20mm Standard`), senão o
   de mesma altura de camada, senão o padrão da impressora. Esse processo não é escolhido na tela.
-- Mostra só as configurações de processo em que o original difere desse processo, todas marcadas com o
-  valor do original, e o usuário troca as que quiser pelo valor do perfil. As incompatíveis com a
-  impressora ficam destacadas e vêm marcadas com o valor do perfil: velocidade, aceleração ou jerk acima
-  do máximo da máquina (se mantidas, são limitadas), altura de camada fora do limite do bico
-  (`min_layer_height`/`max_layer_height`) e chaves que não existem no OrcaSlicer. Configurações que o
+- Mostra só as configurações de processo em que o original difere desse processo, e o usuário escolhe,
+  em cada uma, o valor do original ou o do perfil. Vêm marcados com o original os ajustes do autor
+  (`different_settings_to_system`), a altura de camada e a altura da primeira camada, que são do modelo.
+  O resto vem marcado com o perfil, porque é afinação da impressora de origem (velocidades,
+  acelerações etc.). As incompatíveis com a impressora ficam destacadas e travadas no valor do perfil
+  (o original não pode ser escolhido nem é gravado):
+  - aceleração acima de `machine_max_acceleration_extruding` (a de deslocamento usa
+    `machine_max_acceleration_travel` em Marlin 2, Repetier e RepRapFirmware); em porcentagem, a ponte
+    é calculada sobre a parede externa e os preenchimentos sobre a aceleração padrão. Só se a
+    aceleração padrão estiver ativa;
+  - jerk acima do menor entre `machine_max_jerk_x`/`_y`, só se o jerk padrão estiver ativo;
+  - velocidade acima do menor entre `machine_max_speed_x`/`_y` ou, para as linhas de extrusão, acima
+    do fluxo máximo do filamento (`filament_max_volumetric_speed` ÷ (altura de camada × largura da
+    linha)). Nunca abaixo do valor do próprio perfil de destino;
+  - altura de camada fora do limite do bico (`min_layer_height`/`max_layer_height`);
+  - chaves que não existem no OrcaSlicer.
+
+  As regras de limite seguem as do conversor antigo usado como referência. Configurações que o
   perfil de destino não define só aparecem se o autor as alterou, porque o valor padrão interno do
   OrcaSlicer não está nos dados gerados.
 - As configurações de G-code da aba "Outros" do processo (opções de G-code, formato do nome do arquivo,
