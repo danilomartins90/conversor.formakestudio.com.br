@@ -1,4 +1,4 @@
-import { readBytes } from "./zip.js?version=1.5.1";
+import { readBytes } from "./zip.js?version=1.0.0";
 import {
   readProject,
   chooseProcess,
@@ -6,9 +6,9 @@ import {
   checkFit,
   planConversion,
   convertProject,
-} from "./converter.js?version=1.5.1";
+} from "./converter.js?version=1.0.0";
 
-const APP_VERSION = "1.5.1";
+const APP_VERSION = "1.0.0";
 const MAX_LISTED = 80;
 
 const $ = (id) => document.getElementById(id);
@@ -32,7 +32,7 @@ const state = {
 const cache = new Map();
 async function loadData(path) {
   if (!cache.has(path)) {
-    cache.set(path, fetch(`data/${path}?v=${APP_VERSION}`).then((response) => {
+    cache.set(path, fetch(`data/${path}?version=${APP_VERSION}`).then((response) => {
       if (!response.ok) throw new Error(`Não foi possível carregar data/${path} (${response.status}).`);
       return response.json();
     }));

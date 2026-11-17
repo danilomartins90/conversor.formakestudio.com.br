@@ -49,25 +49,79 @@ data/                      perfis gerados a partir do OrcaSlicer
 tools/generate-profiles.mjs gerador de data/
 ```
 
-## Atualizar os perfis
+## Versão do site e cache
 
-Os dados atuais vêm do OrcaSlicer **v2.5.1** (tag `v2.5.1`, commit `eef7710`). Requer Node 18+ e o código
-do [OrcaSlicer](https://github.com/OrcaSlicer/OrcaSlicer) na versão desejada. Só são lidas as pastas
-`resources/profiles`, `src/libslic3r` e `localization/i18n/pt_BR`, além do `version.inc`:
+A versão atual é a que aparece no rodapé da página ("Versão: 1.0.0"). Todos os arquivos que a página
+carrega levam a versão na URL (`style.css?version=1.0.0`, `js/app.js?version=1.0.0`, o logo, os `import`
+entre os JS e os `.json` de `data/`). Quando a versão muda, as URLs mudam e o navegador baixa tudo de novo
+em vez de usar o cache.
 
-```bash
-git clone --depth 1 --branch v2.5.1 --filter=blob:none --sparse https://github.com/OrcaSlicer/OrcaSlicer.git OrcaSlicer-2.5.1
-git -C OrcaSlicer-2.5.1 sparse-checkout set resources/profiles src/libslic3r localization/i18n/pt_BR
-node tools/generate-profiles.mjs --orca OrcaSlicer-2.5.1
-```
+A versão fica em três arquivos:
 
-Sem `--orca`, usa `insumos_para_desenvolvimento/OrcaSlicer-2.5.1` (pasta fora do Git). O script lê as listas
-de chaves e os rótulos (com a tradução pt_BR) direto do código do OrcaSlicer, resolve `inherits`/`include`
-e substitui os `.json` de `data/machines` e `data/processes`.
+| Arquivo | Onde |
+| --- | --- |
+| `index.html` | `?version=` do CSS, do logo e dos dois `<script>`, e o texto "Versão:" do rodapé |
+| `js/app.js` | `const APP_VERSION` (usada nos `.json` de `data/` e no rodapé) e os dois `import` |
+| `js/converter.js` | `import` do `zip.js` |
 
-Depois de mudar arquivos do site, suba o número de versão em todos os lugares onde ele aparece, para
-evitar cache antigo: `index.html` (`?version=` e o texto "Versão"), `js/app.js` (`APP_VERSION` e os
-`import`) e `js/converter.js` (`import` do `zip.js`). Para conferir: `grep -rn "version=\|APP_VERSION" index.html js`.
+### Publicar uma versão nova
+
+1. Faça as alterações e teste localmente (ver "Testar localmente").
+2. Suba a versão em todos os lugares de uma vez (exemplo de 1.0.0 para 1.0.1):
+
+   ```bash
+   sed -i 's/1\.0\.0/1.0.1/g' index.html js/app.js js/converter.js
+   ```
+
+3. Confira se todas as ocorrências ficaram com a versão nova:
+
+   ```bash
+   grep -rn "version=\|APP_VERSION =\|Versão:" index.html js
+   ```
+
+4. Faça commit e push na `main`. O GitHub Pages publica em seguida.
+
+O GitHub Pages envia `Cache-Control: max-age=600` para todos os arquivos, inclusive o `index.html`, e não
+permite mudar isso. Então, logo depois de publicar, um navegador que já tinha aberto o site pode mostrar a
+página antiga por até 10 minutos (ou até um recarregamento forçado, Ctrl+Shift+R). Quando ele busca o
+`index.html` novo, todos os outros arquivos vêm na versão nova.
+
+## Atualizar os perfis (nova versão do OrcaSlicer)
+
+Os dados atuais vêm do OrcaSlicer **v2.5.1** (tag `v2.5.1`, commit `eef7710`). O gerador lê os perfis
+(`resources/profiles`), as listas de configurações do código C++ (`src/libslic3r`), a tradução pt_BR
+(`localization/i18n/pt_BR`) e o `version.inc`. Requer Node 18 ou mais novo.
+
+1. Veja o nome exato da tag da versão nova em
+   [releases do OrcaSlicer](https://github.com/OrcaSlicer/OrcaSlicer/releases). Nos comandos abaixo,
+   troque `v2.6.0` por ela.
+
+2. Baixe só as pastas necessárias para `insumos_para_desenvolvimento/` (ignorada pelo Git):
+
+   ```bash
+   mkdir -p insumos_para_desenvolvimento
+   git clone --depth 1 --branch v2.6.0 --filter=blob:none --sparse https://github.com/OrcaSlicer/OrcaSlicer.git insumos_para_desenvolvimento/OrcaSlicer-2.6.0
+   git -C insumos_para_desenvolvimento/OrcaSlicer-2.6.0 sparse-checkout set resources/profiles src/libslic3r localization/i18n/pt_BR
+   ```
+
+3. Gere os perfis:
+
+   ```bash
+   node tools/generate-profiles.mjs --orca insumos_para_desenvolvimento/OrcaSlicer-2.6.0 --verbose
+   ```
+
+   O script substitui os `.json` de `data/machines` e `data/processes` e reescreve `data/printers.json`,
+   `data/keys.json`, `data/labels.json` e `data/meta.json`. No fim mostra quantas impressoras e processos
+   gerou e os avisos (com `--verbose`, a lista dos avisos). A versão do OrcaSlicer é lida do
+   `version.inc` e aparece no rodapé do site.
+
+   Se o código do OrcaSlicer mudar de estrutura numa versão nova, o script para com um erro (por exemplo
+   `marker not found: ...`) em vez de gerar dados errados. Nesse caso o gerador precisa ser ajustado.
+
+4. Atualize neste README a versão de origem dos dados (a linha "Os dados atuais vêm do OrcaSlicer ...").
+
+5. Suba a versão do site e publique (ver "Publicar uma versão nova"). Sem isso, o navegador pode continuar
+   usando os perfis antigos do cache.
 
 ## Testar localmente
 

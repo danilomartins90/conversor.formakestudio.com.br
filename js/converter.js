@@ -2,7 +2,7 @@
 // The meshes, painting and per-object settings are copied untouched; only the project config is
 // rebuilt from the target printer's OrcaSlicer presets plus the settings the author changed.
 
-import { readZip, readText, forEachTagChunk, makeEntry, transformEntry, writeZip } from "./zip.js?version=1.5.1";
+import { readZip, readText, forEachTagChunk, makeEntry, transformEntry, writeZip } from "./zip.js?version=1.0.0";
 
 const CONFIG = "Metadata/project_settings.config";
 const MODEL = "3D/3dmodel.model";
