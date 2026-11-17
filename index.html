@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="Conversor de projetos 3MF do Bambu Studio para outras impressoras, mantendo os ajustes do autor." />
+  <title>Conversor 3MF</title>
+  <link rel="stylesheet" href="style.css?version=1.5.1" />
+</head>
+<body>
+
+  <div id="loginGate" class="login-gate">
+    <div class="login-card">
+      <img src="logo-formake.webp?version=1.5.1" alt="Formake Studio" class="login-logo" />
+      <span class="eyebrow">ACESSO RESTRITO</span>
+      <h1>Conversor 3MF</h1>
+      <p>Informe a senha para acessar o conversor.</p>
+
+      <form id="loginForm" class="login-form">
+        <label class="field">
+          <span>Senha</span>
+          <div class="password-wrap">
+            <input
+              id="loginPassword"
+              type="password"
+              autocomplete="current-password"
+              placeholder="Digite sua senha"
+              required
+            />
+            <button id="togglePassword" type="button" class="password-toggle" aria-label="Mostrar senha">
+              Mostrar
+            </button>
+          </div>
+        </label>
+
+        <div id="loginError" class="login-error" hidden>Senha incorreta.</div>
+
+        <button type="submit" class="primary login-button">Entrar</button>
+      </form>
+    </div>
+  </div>
+
+  <main id="appContent" class="container app-locked" aria-hidden="true">
+    <header class="hero hero-with-actions">
+      <div>
+        <span class="eyebrow">IMPRESSÃO 3D</span>
+        <h1>Conversor 3MF</h1>
+        <p>Leve um projeto do MakerWorld (Bambu Studio) para a sua impressora, mantendo os ajustes que o autor fez no perfil.</p>
+      </div>
+      <button id="lockButton" type="button" class="lock-button">Bloquear</button>
+    </header>
+
+    <div class="card">
+      <section>
+        <div class="section-title">
+          <span class="step">1</span>
+          <div>
+            <h2>Arquivo do projeto</h2>
+            <p>O arquivo é lido no seu navegador e não é enviado para nenhum servidor.</p>
+          </div>
+        </div>
+
+        <div id="dropZone" class="drop-zone" tabindex="0" role="button" aria-label="Escolher arquivo 3MF">
+          <strong>Solte o arquivo .3mf aqui</strong>
+          <span>ou clique para escolher</span>
+        </div>
+        <input id="fileInput" type="file" accept=".3mf" hidden />
+        <div id="loadStatus" class="status" hidden></div>
+
+        <div id="sourceInfo" hidden>
+          <div class="source-grid">
+            <div class="info-box">
+              <span>Impressora de origem</span>
+              <strong id="sourcePrinter">-</strong>
+              <small id="sourceDetails"></small>
+            </div>
+            <div class="info-box">
+              <span>Processo do autor</span>
+              <strong id="sourceProcess">-</strong>
+              <small id="sourceAuthor"></small>
+            </div>
+            <div class="info-box">
+              <span id="filamentsTitle">Filamentos do projeto</span>
+              <div id="sourceFilaments" class="filament-list compact"></div>
+            </div>
+          </div>
+          <div class="info-box plates-box">
+            <span id="platesTitle">Mesas</span>
+            <div id="plates" class="plates"></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="targetSection" hidden>
+        <div class="section-title">
+          <span class="step">2</span>
+          <div>
+            <h2>Impressora de destino</h2>
+            <p id="targetIntro">Perfis de impressora do OrcaSlicer. Impressoras com mais de um bico ainda não são suportadas.</p>
+          </div>
+        </div>
+
+        <div class="grid single">
+          <label class="field">
+            <span>Buscar por nome</span>
+            <input id="printerSearch" type="search" placeholder="Ex.: AD5X, Kobra 3, K1C" autocomplete="off" />
+          </label>
+        </div>
+
+        <div id="printerList" class="printer-list" role="listbox" aria-label="Impressoras"></div>
+        <p id="printerCount" class="hint"></p>
+      </section>
+
+      <section id="authorSection" hidden>
+        <div class="section-title">
+          <span class="step">3</span>
+          <div>
+            <h2>Original × sua impressora</h2>
+            <p>Só aparecem as configurações em que o original é diferente do perfil da impressora escolhida. Todas vêm com o valor do original; clique em "Seu perfil" nas que quiser trocar. As destacadas não são compatíveis com a impressora e vêm com o valor do perfil.</p>
+          </div>
+        </div>
+
+        <div id="selectedPrinter" class="selected-printer"></div>
+
+        <p id="diffCount" class="hint"></p>
+        <div id="authorChanges" class="diff-table"></div>
+        <div id="authorNotes"></div>
+      </section>
+
+      <div id="warnings"></div>
+      <div id="formError" class="error" role="alert" hidden></div>
+
+      <div class="actions" id="actions" hidden>
+        <button id="convertButton" type="button" class="primary">Converter e baixar</button>
+        <button id="resetButton" type="button" class="secondary">Trocar arquivo</button>
+      </div>
+    </div>
+
+    <section id="result" class="result-card" hidden aria-live="polite">
+      <span class="eyebrow">PRONTO</span>
+      <h2>Arquivo convertido</h2>
+      <p id="resultText"></p>
+      <ul id="resultList" class="result-list"></ul>
+      <h3 class="subhead">Conferência: original × convertido</h3>
+      <p class="hint summary-hint">As configurações em que você escolheu o original devem sair iguais a ele, exceto quando limitadas ao máximo da impressora. As demais vêm do perfil da impressora de destino.</p>
+      <div id="compareSummary" class="summary-table"></div>
+      <p class="note">Ao abrir no fatiador: se ele tiver os mesmos perfis de sistema, usa os valores dele e mantém só as configurações em que você escolheu o original. Se não tiver, usa os valores gravados no arquivo.</p>
+    </section>
+
+    <p class="build-date" id="buildInfo">Versão: 1.5.1</p>
+  </main>
+
+  <script src="js/auth.js?version=1.5.1"></script>
+  <script type="module" src="js/app.js?version=1.5.1"></script>
+</body>
+</html>
